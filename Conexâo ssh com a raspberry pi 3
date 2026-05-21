@@ -1,0 +1,20 @@
+Conexão com a raspberry (SSH) via terminal:
+
+    1- Digite o comando: ssh lobi@192.168.2.131
+    2- Digite a senha de usuário
+
+
+Caso você não estiver acessando a raspberry remotamente e quer garantir que alguém possa acessá-lo de maneira remota pela linha de comando:
+    Através do terminal:
+
+        Para parar o acesso via terminal: sudo systemctl stop ssh
+
+        Para parar o acesso gráfico (RDP): sudo systemctl stop xrdp
+
+    (Esses comandos param o serviço apenas até o próximo reinício. Se quiser que eles nunca mais liguem sozinhos, troque stop por disable.)
+
+
+Caso você queria sair da conexão via terminal digite: exit
+
+Delsigar a raspberry: 
+    Vá para o temrinal e digite: sudo shutdown -h now
