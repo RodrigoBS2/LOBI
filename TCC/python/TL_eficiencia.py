@@ -12,6 +12,30 @@ from scipy.optimize import curve_fit
 import tkinter as tk
 from tkinter import filedialog
 
+'''
+
+# Adicione nos parâmetros iniciais:
+THETA_SOLVENTE = 0.015 # Substitua pelo valor ajustado da sua cubeta só com Etanol
+
+def calcular_eficiencia_e_temperatura(theta, tc, tempo_array):
+    P_in_real = P_IN * (1.0 - PERDA_CUBETA)
+    alfa_m = ALFA * 100 
+    P_abs = P_in_real * (1 - np.exp(-alfa_m * L))
+    
+    # SUBTRAÇÃO DO BRANCO (Apenas a força da Lente Térmica da molécula):
+    theta_real = np.abs(theta) - THETA_SOLVENTE
+    
+    # Calcula o calor apenas com o theta real da Rodamina:
+    phi = (theta_real * LAMBDA_EX * KAPPA) / (P_abs * np.abs(DNDT))
+    eta = (1.0 - phi) * (LAMBDA_EM / LAMBDA_EX)
+    
+    delta_T_global = (P_abs * phi) / (4 * np.pi * L * KAPPA * (1 + M_RATIO)) * np.log(1 + (2 * tempo_array) / tc)
+    
+    return eta * 100, delta_T_global, P_abs
+
+'''
+
+
 # =============================================================================
 # 1. PARÂMETROS FÍSICOS CONSTANTES 
 # =============================================================================
