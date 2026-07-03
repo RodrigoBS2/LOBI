@@ -290,7 +290,7 @@ class OsciloscopioApp(QtWidgets.QWidget):
             return
 
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        nome_arquivo = f"dados_daq_{timestamp}.csv"
+        nome_arquivo = f"Dados_DAQ_{timestamp}.csv"
         caminho_completo = os.path.join(diretorio_destino, nome_arquivo)
         
         try:
