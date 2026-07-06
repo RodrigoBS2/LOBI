@@ -1,0 +1,57 @@
+void RCC_Config(void) {
+    RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_AFIOEN;           // Habilitando o 
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN | RCC_APB2ENR_ADC1EN; 
+    RCC->CFGR &= ~RCC_CFGR_ADCPRE;
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6;
+}
+
+1º) RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN | RCC_APB2ENR_AFIOEN 
+
+    - RCC_APB2ENR_IOPAEN : (0x1UL << (2U))
+         IOPAEN: IO port A clock enable
+            Set and cleared by software.
+            0: IO port A clock disabled
+            1: IO port A clock enabled
+    
+    - RCC_APB2ENR_IOPBEN : (0x1UL << (3U))
+        IOPBEN: IO port B clock enable
+            Set and cleared by software.
+            0: IO port B clock disabled
+            1: IO port B clock enabled
+    
+    - RCC_APB2ENR_AFIOEN : (0x1UL << (0U))
+        AFIOEN: Alternate function IO clock enable
+            Set and cleared by software.
+            0: Alternate Function IO clock disabled
+            1: Alternate Function IO clock enabled
+
+2º) RCC->APB2ENR |= RCC_APB2ENR_USART1EN | RCC_APB2ENR_ADC1EN
+
+    - RCC_APB2ENR_USART1EN : (0x1UL << (14U))
+        USART1EN: USART1 clock enable
+            Set and cleared by software.
+            0: USART1 clock disabled
+            1: USART1 clock enabled
+    
+    - RCC_APB2ENR_ADC1EN : (0x1UL << (9U))
+        ADC1EN: ADC 1 interface clock enable
+            Set and cleared by software.
+            0: ADC 1 interface disabled
+            1: ADC 1 interface clock enabled
+    
+3º) RCC->CFGR &= ~RCC_CFGR_ADCPRE
+    RCC->CFGR |= RCC_CFGR_ADCPRE_DIV6
+
+    - RCC_CFGR_ADCPRE : (0x3UL << (14U))
+        ADCPRE: ADC prescaler
+            Set and cleared by software to select the frequency of the clock to the ADCs.
+            00: PCLK2 divided by 2
+            01: PCLK2 divided by 4
+            10: PCLK2 divided by 6
+            11: PCLK2 divided by 8
+
+        OBS: In this case, the software is clearing ADCPRE bits : ~RCC_CFGR_ADCPRE = ~(0x3UL << (14U))
+
+    - RCC_CFGR_ADCPRE_DIV6 : 0x00008000U    PCLK2 divided by 6
+        
+            
