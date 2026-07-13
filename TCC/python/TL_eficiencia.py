@@ -53,7 +53,7 @@ KAPPA = 0.171       # kappa (W/m.K)
 
 # -- Propriedades da Amostra e Laser --
 P_IN = 17.5e-3        # P_in (W): Potência bruta do laser.
-ALFA = 34.94         # alpha (cm^-1): Coeficiente de absorção linear (Mude este valor conforme a amostra!)
+ALFA = 8.21         # alpha (cm^-1): Coeficiente de absorção linear (Mude este valor conforme a amostra!)
 
 LAMBDA_EX = 532e-9  # Lambda_ex (m)
 LAMBDA_EM = 560e-9  # Lambda_em (m)

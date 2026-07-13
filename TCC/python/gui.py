@@ -41,7 +41,7 @@ class OsciloscopioApp(QtWidgets.QWidget):
         layout_principal = QtWidgets.QVBoxLayout(self)
 
         self.plot_widget = pg.PlotWidget(title="Sinal do Fotodetector")
-        self.plot_widget.setYRange(self.offset_y, self.offset_y + self.escala_y, padding=0)
+        self.plot_widget.setYRange(self.offset_y -0.2, self.offset_y + self.escala_y, padding=0)
         self.plot_widget.setXRange(0, self.tempo_visivel, padding=0)
         self.plot_widget.showGrid(x=True, y=True, alpha=0.5)
         self.plot_widget.setLabel('left', 'Tensão (V)')
@@ -129,6 +129,18 @@ class OsciloscopioApp(QtWidgets.QWidget):
 
         layout_principal.addLayout(painel_controles, stretch=1)
 
+        # --- NOVO: Botão de Automação DAQ ---
+        self.btn_obter_daq = QtWidgets.QPushButton("Obter DAQ (Auto-Set)")
+        self.btn_obter_daq.setStyleSheet("""
+            QPushButton {
+                background-color: #0055ff; color: white; font-weight: bold; 
+                font-size: 16px; padding: 10px; border-radius: 5px;
+            }
+            QPushButton:hover { background-color: #0033cc; }
+        """)
+        self.btn_obter_daq.clicked.connect(self.rotina_auto_daq)
+        layout_principal.addWidget(self.btn_obter_daq)
+
     def criar_slider(self, minimo, maximo, atual, estilo):
         slider = QtWidgets.QSlider()
         slider.setOrientation(QtCore.Qt.Orientation.Horizontal)
@@ -153,12 +165,12 @@ class OsciloscopioApp(QtWidgets.QWidget):
     def ao_mudar_escala(self, val):
         self.escala_y = val / 1000.0 
         self.lbl_val_escala.setText(f"{self.escala_y:.3f} V")
-        self.plot_widget.setYRange(self.offset_y, self.offset_y + self.escala_y, padding=0)
+        self.plot_widget.setYRange(self.offset_y -0.2, self.offset_y + self.escala_y, padding=0)
 
     def ao_mudar_offset(self, val):
         self.offset_y = val / 1000.0 
         self.lbl_val_offset.setText(f"{self.offset_y:.3f} V")
-        self.plot_widget.setYRange(self.offset_y, self.offset_y + self.escala_y, padding=0)
+        self.plot_widget.setYRange(self.offset_y -0.2, self.offset_y + self.escala_y, padding=0)
 
     def ao_mudar_nivel_trigger(self, val):
         self.nivel_trigger = val / 1000.0 
@@ -317,3 +329,102 @@ class OsciloscopioApp(QtWidgets.QWidget):
         except:
             pass
         event.accept()
+
+
+    def rotina_auto_daq(self):
+        self.btn_obter_daq.setText("Configurando... Aguarde.")
+        self.btn_obter_daq.setEnabled(False)
+
+        # 1. Analisar os dados atuais no buffer
+        with daq_serial.buffer_lock:
+            arr = np.array(daq_serial.buffer_interno)
+        
+        if len(arr) == 0:
+            v_max, v_min = 3.3, 0.0
+        else:
+            v_max = np.max(arr)
+            v_min = np.min(arr)
+            
+        amplitude = v_max - v_min
+
+        # 2. Ajustar Escala de Tensão (Y)
+        # Deixa uma margem de 20% acima do pico máximo lido
+        nova_escala_y = min(3.3, v_max * 1.2)
+        if nova_escala_y < 0.5: nova_escala_y = 1.0 # Valor mínimo de segurança
+        self.slider_escala.setValue(int(nova_escala_y * 1000))
+        self.slider_offset.setValue(0) # Zera a elevação
+
+        # 3. Ajustar Trigger (metade da amplitude do sinal)
+        if amplitude > 0.1:
+            novo_trigger = v_min + (amplitude / 2.0)
+        else:
+            novo_trigger = 0.700 # Padrão baseado na sua imagem
+            
+        self.slider_trigger.setValue(int(novo_trigger * 1000))
+        
+        if not self.trigger_ativado:
+            self.alternar_trigger()
+            
+        if self.borda_trigger == 'descida':
+            self.alternar_borda() # Força para Borda de Subida
+
+        # 4. Ajustar Tempo Visível (X)
+        # Baseado na sua imagem, o tempo ideal do evento é em torno de 0.34s
+        self.slider_tempo.setValue(34) # 34 / 100.0 = 0.34s
+
+        # 5. Ativar Filtro e Média (se estiverem desligados)
+        if not self.filtro_ativado:
+            self.alternar_filtro()
+            
+        if not self.media_ativada:
+            self.alternar_media()
+
+        # 6. Aguardar o buffer preencher com as novas regras antes de salvar
+        # Espera o dobro do tempo visível para garantir que a onda passou pelo trigger
+        tempo_espera_ms = int((self.tempo_visivel * 2) * 1000)
+        QtCore.QTimer.singleShot(max(1000, tempo_espera_ms), self.salvar_dados_daq)
+
+    def salvar_dados_daq(self):
+        # Captura os dados exatamente como estão plotados na tela
+        x_atual = np.linspace(0, self.tempo_visivel, self.max_pontos)
+        y_atual = np.copy(self.y_data_tela)
+
+        # --- Define o caminho absoluto para salvar o arquivo ---
+        caminho_pasta = "/home/rodrigo/Área de Trabalho/LOBI/TCC/python/DAQ/"
+        
+        # Garante que a pasta exista (cria se não existir)
+        import os
+        os.makedirs(caminho_pasta, exist_ok=True) 
+        
+        # Junta o caminho da pasta com o nome do arquivo
+        nome_arquivo = os.path.join(caminho_pasta, "captura_fotodiodo_daq.csv")
+        
+        try:
+            with open(nome_arquivo, mode='w', newline='') as file:
+                writer = csv.writer(file, delimiter=';')
+                writer.writerow(["Tempo (s)", "Tensao (V)"])
+                for tempo, tensao in zip(x_atual, y_atual):
+                    writer.writerow([f"{tempo:.5f}", f"{tensao:.5f}"])
+                    
+            print(f"DAQ salvo com sucesso em: {nome_arquivo}")
+            self.btn_obter_daq.setText("DAQ Salvo!")
+            self.btn_obter_daq.setStyleSheet("background-color: darkgreen; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+        
+        except Exception as e:
+            print(f"Erro ao salvar DAQ: {e}")
+            self.btn_obter_daq.setText("Erro ao Salvar")
+            self.btn_obter_daq.setStyleSheet("background-color: darkred; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+
+        # Restaura o botão após 3 segundos
+        QtCore.QTimer.singleShot(3000, self.resetar_botao_daq)
+
+    def resetar_botao_daq(self):
+        self.btn_obter_daq.setText("Obter DAQ (Auto-Set)")
+        self.btn_obter_daq.setStyleSheet("""
+            QPushButton {
+                background-color: #0055ff; color: white; font-weight: bold; 
+                font-size: 16px; padding: 10px; border-radius: 5px;
+            }
+            QPushButton:hover { background-color: #0033cc; }
+        """)
+        self.btn_obter_daq.setEnabled(True)
