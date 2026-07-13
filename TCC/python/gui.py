@@ -346,6 +346,11 @@ class OsciloscopioApp(QtWidgets.QWidget):
         self.btn_obter_daq.setText("Estabilizando Sinal (1.5s)...")
         self.btn_obter_daq.setEnabled(False)
 
+        # --- NOVA: Configura as variáveis do lote estatístico ---
+        self.total_coletas = 10
+        self.contador_daq = 0
+        self.arquivos_lote = []
+
         # 1. Analisar os dados atuais no buffer
         with daq_serial.buffer_lock:
             arr = np.array(daq_serial.buffer_interno)
@@ -388,11 +393,11 @@ class OsciloscopioApp(QtWidgets.QWidget):
         if not self.media_ativada:
             self.alternar_media()
 
-        # OPÇÃO A: Pausa mágica de 1.5s para a porta serial limpar o "lixo" do redimensionamento
+        # Pausa mágica de 1.5s para a porta serial limpar o "lixo" do redimensionamento
         QtCore.QTimer.singleShot(1500, self.iniciar_coleta_auto_daq)
 
     def iniciar_coleta_auto_daq(self):
-        # 6. Limpa o buffer antigo e inicia a coleta limpa
+        # Limpa o buffer antigo e inicia uma coleta 100% independente
         self.buffer_ondas.clear()
         
         # Calcula o tempo necessário para capturar 16 ondas completas
@@ -400,25 +405,22 @@ class OsciloscopioApp(QtWidgets.QWidget):
         tempo_espera_ms = int(tempo_necessario_segundos * 1000)
         
         segundos_display = int(tempo_necessario_segundos)
-        self.btn_obter_daq.setText(f"Aguarde {segundos_display}s (Coletando 16x)...")
+        self.btn_obter_daq.setText(f"Coletando {self.contador_daq + 1}/{self.total_coletas} (Aguarde {segundos_display}s)...")
         
-        # Agenda o salvamento para quando as 16 médias estiverem perfeitas
-        QtCore.QTimer.singleShot(max(2000, tempo_espera_ms), self.salvar_dados_daq)
+        # Agenda o salvamento para quando a média estiver perfeita
+        QtCore.QTimer.singleShot(max(2000, tempo_espera_ms), self.salvar_dados_daq_lote)
 
-    def salvar_dados_daq(self):
-        # Captura os dados exatamente como estão plotados na tela
+    def salvar_dados_daq_lote(self):
         x_atual = np.linspace(0, self.tempo_visivel, self.max_pontos)
         y_atual = np.copy(self.y_data_tela)
 
-        # --- Define o caminho absoluto para salvar o arquivo ---
         caminho_pasta = "/home/rodrigo/Área de Trabalho/LOBI/TCC/python/DAQ/"
-        
-        # Garante que a pasta exista (cria se não existir)
         import os
         os.makedirs(caminho_pasta, exist_ok=True) 
         
-        # Junta o caminho da pasta com o nome do arquivo
-        nome_arquivo = os.path.join(caminho_pasta, "captura_fotodiodo_daq.csv")
+        # Nomeia o arquivo com o número da amostra no final (1 a 10)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        nome_arquivo = os.path.join(caminho_pasta, f"daq_{timestamp}_amostra_{self.contador_daq + 1}.csv")
         
         try:
             with open(nome_arquivo, mode='w', newline='') as file:
@@ -426,38 +428,40 @@ class OsciloscopioApp(QtWidgets.QWidget):
                 writer.writerow(["Tempo (s)", "Tensao (V)"])
                 for tempo, tensao in zip(x_atual, y_atual):
                     writer.writerow([f"{tempo:.5f}", f"{tensao:.5f}"])
-                    
-            print(f"DAQ salvo com sucesso em: {nome_arquivo}")
-            self.btn_obter_daq.setText("DAQ Salvo!")
-            self.btn_obter_daq.setStyleSheet("background-color: darkgreen; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
-        
+            
+            self.arquivos_lote.append(nome_arquivo)
+            self.contador_daq += 1
+
         except Exception as e:
             print(f"Erro ao salvar DAQ: {e}")
-            self.btn_obter_daq.setText("Erro ao Salvar")
+            self.btn_obter_daq.setText("Erro ao Salvar Lote")
             self.btn_obter_daq.setStyleSheet("background-color: darkred; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+            QtCore.QTimer.singleShot(3000, self.resetar_botao_daq)
+            return
 
-        # --- NOVO: Executa a análise automaticamente ---
-        if os.path.exists(nome_arquivo):
+        # --- Lógica de Repetição ---
+        if self.contador_daq < self.total_coletas:
+            # Ainda faltam arquivos, volta a coletar
+            self.iniciar_coleta_auto_daq()
+        else:
+            # Já coletou os 10 arquivos, chama o script enviando a lista inteira
+            self.btn_obter_daq.setText("Lote Salvo! Analisando...")
+            self.btn_obter_daq.setStyleSheet("background-color: darkgreen; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
+            
             try:
-                # Captura o texto do campo ALFA, trocando vírgula por ponto
                 valor_alfa = str(float(self.input_alfa.text().replace(',', '.')))
-                
-                # Caminho absoluto para o seu script de eficiência
                 caminho_script_tl = "/home/rodrigo/Área de Trabalho/LOBI/TCC/python/TL_eficiencia.py"
                 
-                print(f"Iniciando análise com ALFA={valor_alfa}...")
+                # Monta a lista: ["python3", "script.py", "arq1.csv", "arq2.csv", ..., "alfa"]
+                comando = ["python3", caminho_script_tl] + self.arquivos_lote + [valor_alfa]
                 
-                # O Popen roda o script em paralelo sem travar a tela do osciloscópio
                 import subprocess
-                subprocess.Popen(["python3", caminho_script_tl, nome_arquivo, valor_alfa])
+                subprocess.Popen(comando)
                 
-            except ValueError:
-                print("Valor de ALFA inválido. Digite apenas números.")
             except Exception as e:
                 print(f"Erro ao tentar abrir o TL_eficiencia.py: {e}")
 
-        # Restaura o botão após 3 segundos
-        QtCore.QTimer.singleShot(3000, self.resetar_botao_daq)
+            QtCore.QTimer.singleShot(3000, self.resetar_botao_daq)
 
 
     def resetar_botao_daq(self):

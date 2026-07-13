@@ -158,28 +158,23 @@ def main():
     global ALFA
     arquivos = []
 
-    # Verifica se recebeu argumentos do terminal (vindo do gui.py)
-    if len(sys.argv) == 3:
-        arquivos = [sys.argv[1]]
+    # Lê todos os arquivos passados no argumento do subprocess, exceto o ALFA no final
+    if len(sys.argv) >= 3:
+        arquivos = sys.argv[1:-1]
         try:
-            ALFA = float(sys.argv[2])
-            print(f"Modo Automático: Analisando DAQ com ALFA = {ALFA}")
+            ALFA = float(sys.argv[-1])
+            print(f"Modo Lote Automático: Analisando {len(arquivos)} arquivos com ALFA = {ALFA}")
         except ValueError:
-            print("Erro ao ler o ALFA do osciloscópio. Usando padrão.")
+            print("Erro ao ler o ALFA do osciloscópio.")
     else:
-        # Modo Manual (quando você roda o TL_eficiencia.py sozinho)
         root = tk.Tk()
         root.withdraw() 
-        
-        print("Selecione os ficheiros de dados (.csv)...")
         arquivos = filedialog.askopenfilenames(
             title="Selecione os ficheiros CSV",
             filetypes=(("Ficheiros CSV", "*.csv"), ("Todos os ficheiros", "*.*"))
         )
         root.destroy() 
-        
         if not arquivos:
-            print("Nenhum ficheiro selecionado.")
             return
 
     num, den_a, den_b = calcular_parametros_descasamento()
@@ -187,11 +182,16 @@ def main():
     chute_inicial = [0.5, 5e-3] 
     limites = ([-THETA_MAX, TC_MIN], [THETA_MAX, TC_MAX])
 
+    # Listas para guardar resultados individuais do lote
+    t_plot_all = []
+    s_norm_all = []
+    eta_list = []
+    theta_list = []
+    tc_list = []
+
+    # Analisa cada arquivo separadamente para ter estatística real
     for caminho_arquivo in arquivos:
         nome_arquivo = caminho_arquivo.split('/')[-1]
-        print(f"\n{'='*50}")
-        print(f"A processar amostra: {nome_arquivo}")
-                
         tempo_bruto, sinal_bruto = ler_dados_robusto(caminho_arquivo)
         if tempo_bruto is None or len(tempo_bruto) == 0: continue
 
@@ -205,46 +205,68 @@ def main():
         try:
             popt, pcov = curve_fit(fit_func, t_sec, s_norm, p0=chute_inicial, bounds=limites)
             theta_fit, tc_fit = popt
-            s_fit = fit_func(t_sec, theta_fit, tc_fit)
-            
             eta_pct, delta_T_array, P_abs_calculada = calcular_eficiencia_e_temperatura(theta_fit, tc_fit, t_sec)
-            delta_T_max = np.max(delta_T_array)
+            
+            # Armazena apenas se o ajuste foi bem sucedido
+            t_plot_all.append(t_sec)
+            s_norm_all.append(s_norm)
+            eta_list.append(eta_pct)
+            theta_list.append(theta_fit)
+            tc_list.append(tc_fit)
             
         except Exception as e:
-            print(f"Falha no ajuste matemático: {e}")
-            continue
+            print(f"Falha no ajuste matemático de {nome_arquivo}: {e}")
 
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
-        fig.canvas.manager.set_window_title(f"Ajuste - {nome_arquivo}")
-        
-        t_plot = t_sec * 1000 
-        
-        ax1.plot(t_plot, s_norm, '.', color='gray', alpha=0.7, label='Dados Experimentais')
-        ax1.plot(t_plot, s_fit, '-', color='red', linewidth=2.5, label='Fit Físico (Shen)')
-        ax1.set_title(f"Ajuste Óptico\n$\\theta$={np.abs(theta_fit):.4f} | $t_c$={tc_fit*1000:.2f} ms")
-        ax1.set_xlabel("Tempo (ms)")
-        ax1.set_ylabel("I(t)/I(0)")
-        ax1.grid(True, linestyle='--', alpha=0.6)
-        ax1.legend()
-        
-        ax2.plot(t_plot, delta_T_array, '-', color='blue', linewidth=2)
-        ax2.set_title(f"Temperatura Global Média\n$\\eta$={eta_pct:.1f}% | $\\langle\\Delta T\\rangle_{{max}}$={delta_T_max:.3f}°C")
-        ax2.set_xlabel("Tempo (ms)")
-        ax2.set_ylabel("$\\langle\\Delta T\\rangle$ (°C)")
-        ax2.grid(True, linestyle='--', alpha=0.6)
-        plt.tight_layout()
-        
-        plt.show(block=False) 
-        
-        while plt.fignum_exists(fig.number):
-            plt.pause(0.1) 
-            
-        print(f"Resultados de {nome_arquivo}:")
-        print(f"  P_abs : {P_abs_calculada*1000:.2f} mW")
-        print(f"  Theta : {np.abs(theta_fit):.4f}")
-        print(f"  Eta(η): {eta_pct:.1f}%")
+    if not eta_list:
+        print("Nenhum arquivo conseguiu ser processado.")
+        return
 
-    print("\nProcessamento concluído!")
+    # =====================================================================
+    # CÁLCULO ESTATÍSTICO E PLOTAGEM CONJUNTA
+    # =====================================================================
+    eta_mean = np.mean(eta_list)
+    eta_std = np.std(eta_list)
+    theta_mean = np.mean(theta_list)
+    tc_mean = np.mean(tc_list)
+    
+    # Reconstrói a curva média baseada nos resultados
+    t_base = t_plot_all[0] 
+    s_fit_mean = fit_func(t_base, theta_mean, tc_mean)
+    _, delta_T_mean_array, P_abs_mean = calcular_eficiencia_e_temperatura(theta_mean, tc_mean, t_base)
+    delta_T_max_mean = np.max(delta_T_mean_array)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    fig.canvas.manager.set_window_title("Análise Estatística de Lente Térmica - Média do Lote")
+    
+    # Plota a nuvem de todos os 10 arquivos brutos sobrepostos em cinza transparente
+    for t_s, s_n in zip(t_plot_all, s_norm_all):
+        ax1.plot(t_s * 1000, s_n, '.', color='gray', alpha=0.15)
+        
+    # Plota a linha vermelha que representa a média matemática final
+    ax1.plot(t_base * 1000, s_fit_mean, '-', color='red', linewidth=3, label='Fit Médio')
+    ax1.set_title(f"Ajuste Óptico (Média de {len(eta_list)} coletas)\n$\\theta$={np.abs(theta_mean):.4f} | $t_c$={tc_mean*1000:.2f} ms")
+    ax1.set_xlabel("Tempo (ms)")
+    ax1.set_ylabel("I(t)/I(0)")
+    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.legend()
+    
+    ax2.plot(t_base * 1000, delta_T_mean_array, '-', color='blue', linewidth=2)
+    # Aqui é impresso o valor de n (eta) com o seu erro padrão na segunda imagem
+    ax2.set_title(f"Temperatura Global Média\n$\\eta$ = {eta_mean:.1f}% $\\pm$ {eta_std:.2f}% | $\\langle\\Delta T\\rangle_{{max}}$={delta_T_max_mean:.3f}°C")
+    ax2.set_xlabel("Tempo (ms)")
+    ax2.set_ylabel("$\\langle\\Delta T\\rangle$ (°C)")
+    ax2.grid(True, linestyle='--', alpha=0.6)
+    
+    plt.tight_layout()
+    plt.show(block=False) 
+    
+    while plt.fignum_exists(fig.number):
+        plt.pause(0.1) 
+
+    print(f"\n==== Resultados Finais ({len(eta_list)} coletas) ====")
+    print(f"  P_abs Médio: {P_abs_mean*1000:.2f} mW")
+    print(f"  Theta Médio: {np.abs(theta_mean):.4f}")
+    print(f"  Eta(η)     : {eta_mean:.1f} % ± {eta_std:.2f} %")
 
 if __name__ == "__main__":
     main()
