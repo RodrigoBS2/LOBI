@@ -5,7 +5,7 @@ import pyqtgraph as pg
 from datetime import datetime
 from collections import deque
 from pyqtgraph.Qt import QtCore, QtWidgets
-
+import subprocess
 import config
 import daq_serial
 
@@ -129,6 +129,17 @@ class OsciloscopioApp(QtWidgets.QWidget):
 
         layout_principal.addLayout(painel_controles, stretch=1)
 
+        # --- NOVO: Campo de entrada para o ALFA ---
+        layout_alfa = QtWidgets.QHBoxLayout()
+        label_alfa = QtWidgets.QLabel("Coeficiente de Absorção (ALFA) em cm⁻¹:")
+        label_alfa.setStyleSheet("font-weight: bold; font-size: 14px; color: cyan;")
+        self.input_alfa = QtWidgets.QLineEdit("8.21") # Valor padrão inicial
+        self.input_alfa.setStyleSheet("background-color: white; color: black; font-size: 14px; padding: 5px; border-radius: 3px;")
+        
+        layout_alfa.addWidget(label_alfa)
+        layout_alfa.addWidget(self.input_alfa)
+        layout_principal.addLayout(layout_alfa)
+        
         # --- NOVO: Botão de Automação DAQ ---
         self.btn_obter_daq = QtWidgets.QPushButton("Obter DAQ (Auto-Set)")
         self.btn_obter_daq.setStyleSheet("""
@@ -332,7 +343,7 @@ class OsciloscopioApp(QtWidgets.QWidget):
 
 
     def rotina_auto_daq(self):
-        self.btn_obter_daq.setText("Configurando... Aguarde.")
+        self.btn_obter_daq.setText("Estabilizando Sinal (1.5s)...")
         self.btn_obter_daq.setEnabled(False)
 
         # 1. Analisar os dados atuais no buffer
@@ -348,17 +359,16 @@ class OsciloscopioApp(QtWidgets.QWidget):
         amplitude = v_max - v_min
 
         # 2. Ajustar Escala de Tensão (Y)
-        # Deixa uma margem de 20% acima do pico máximo lido
         nova_escala_y = min(3.3, v_max * 1.2)
-        if nova_escala_y < 0.5: nova_escala_y = 1.0 # Valor mínimo de segurança
+        if nova_escala_y < 0.5: nova_escala_y = 1.0 
         self.slider_escala.setValue(int(nova_escala_y * 1000))
-        self.slider_offset.setValue(0) # Zera a elevação
+        self.slider_offset.setValue(0) 
 
-        # 3. Ajustar Trigger (metade da amplitude do sinal)
+        # 3. Ajustar Trigger 
         if amplitude > 0.1:
             novo_trigger = v_min + (amplitude / 2.0)
         else:
-            novo_trigger = 0.700 # Padrão baseado na sua imagem
+            novo_trigger = 0.700 
             
         self.slider_trigger.setValue(int(novo_trigger * 1000))
         
@@ -366,23 +376,34 @@ class OsciloscopioApp(QtWidgets.QWidget):
             self.alternar_trigger()
             
         if self.borda_trigger == 'descida':
-            self.alternar_borda() # Força para Borda de Subida
+            self.alternar_borda() 
 
         # 4. Ajustar Tempo Visível (X)
-        # Baseado na sua imagem, o tempo ideal do evento é em torno de 0.34s
-        self.slider_tempo.setValue(34) # 34 / 100.0 = 0.34s
+        self.slider_tempo.setValue(34) 
 
-        # 5. Ativar Filtro e Média (se estiverem desligados)
+        # 5. Ativar Filtro e Média
         if not self.filtro_ativado:
             self.alternar_filtro()
             
         if not self.media_ativada:
             self.alternar_media()
 
-        # 6. Aguardar o buffer preencher com as novas regras antes de salvar
-        # Espera o dobro do tempo visível para garantir que a onda passou pelo trigger
-        tempo_espera_ms = int((self.tempo_visivel * 2) * 1000)
-        QtCore.QTimer.singleShot(max(1000, tempo_espera_ms), self.salvar_dados_daq)
+        # OPÇÃO A: Pausa mágica de 1.5s para a porta serial limpar o "lixo" do redimensionamento
+        QtCore.QTimer.singleShot(1500, self.iniciar_coleta_auto_daq)
+
+    def iniciar_coleta_auto_daq(self):
+        # 6. Limpa o buffer antigo e inicia a coleta limpa
+        self.buffer_ondas.clear()
+        
+        # Calcula o tempo necessário para capturar 16 ondas completas
+        tempo_necessario_segundos = (self.tempo_visivel * 1.2) * self.qtd_amostras_media
+        tempo_espera_ms = int(tempo_necessario_segundos * 1000)
+        
+        segundos_display = int(tempo_necessario_segundos)
+        self.btn_obter_daq.setText(f"Aguarde {segundos_display}s (Coletando 16x)...")
+        
+        # Agenda o salvamento para quando as 16 médias estiverem perfeitas
+        QtCore.QTimer.singleShot(max(2000, tempo_espera_ms), self.salvar_dados_daq)
 
     def salvar_dados_daq(self):
         # Captura os dados exatamente como estão plotados na tela
@@ -415,8 +436,29 @@ class OsciloscopioApp(QtWidgets.QWidget):
             self.btn_obter_daq.setText("Erro ao Salvar")
             self.btn_obter_daq.setStyleSheet("background-color: darkred; color: white; font-weight: bold; font-size: 16px; padding: 10px; border-radius: 5px;")
 
+        # --- NOVO: Executa a análise automaticamente ---
+        if os.path.exists(nome_arquivo):
+            try:
+                # Captura o texto do campo ALFA, trocando vírgula por ponto
+                valor_alfa = str(float(self.input_alfa.text().replace(',', '.')))
+                
+                # Caminho absoluto para o seu script de eficiência
+                caminho_script_tl = "/home/rodrigo/Área de Trabalho/LOBI/TCC/python/TL_eficiencia.py"
+                
+                print(f"Iniciando análise com ALFA={valor_alfa}...")
+                
+                # O Popen roda o script em paralelo sem travar a tela do osciloscópio
+                import subprocess
+                subprocess.Popen(["python3", caminho_script_tl, nome_arquivo, valor_alfa])
+                
+            except ValueError:
+                print("Valor de ALFA inválido. Digite apenas números.")
+            except Exception as e:
+                print(f"Erro ao tentar abrir o TL_eficiencia.py: {e}")
+
         # Restaura o botão após 3 segundos
         QtCore.QTimer.singleShot(3000, self.resetar_botao_daq)
+
 
     def resetar_botao_daq(self):
         self.btn_obter_daq.setText("Obter DAQ (Auto-Set)")

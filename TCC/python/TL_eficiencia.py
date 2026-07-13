@@ -5,6 +5,7 @@ Created on Tue Jun 23 13:06:11 2026
 @author: Flávia Eduarda
 """
 
+import sys
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -154,19 +155,32 @@ def isolar_pulso_robusto(tempo, sinal):
 # 4. LOOP PRINCIPAL
 # =============================================================================
 def main():
-    root = tk.Tk()
-    root.withdraw() 
-    
-    print("Selecione os ficheiros de dados (.csv)...")
-    arquivos = filedialog.askopenfilenames(
-        title="Selecione os ficheiros CSV",
-        filetypes=(("Ficheiros CSV", "*.csv"), ("Todos os ficheiros", "*.*"))
-    )
-    root.destroy() 
-    
-    if not arquivos:
-        print("Nenhum ficheiro selecionado.")
-        return
+    global ALFA
+    arquivos = []
+
+    # Verifica se recebeu argumentos do terminal (vindo do gui.py)
+    if len(sys.argv) == 3:
+        arquivos = [sys.argv[1]]
+        try:
+            ALFA = float(sys.argv[2])
+            print(f"Modo Automático: Analisando DAQ com ALFA = {ALFA}")
+        except ValueError:
+            print("Erro ao ler o ALFA do osciloscópio. Usando padrão.")
+    else:
+        # Modo Manual (quando você roda o TL_eficiencia.py sozinho)
+        root = tk.Tk()
+        root.withdraw() 
+        
+        print("Selecione os ficheiros de dados (.csv)...")
+        arquivos = filedialog.askopenfilenames(
+            title="Selecione os ficheiros CSV",
+            filetypes=(("Ficheiros CSV", "*.csv"), ("Todos os ficheiros", "*.*"))
+        )
+        root.destroy() 
+        
+        if not arquivos:
+            print("Nenhum ficheiro selecionado.")
+            return
 
     num, den_a, den_b = calcular_parametros_descasamento()
     fit_func = lambda t, th, tc: modelo_shen_v3(t, th, tc, num, den_a, den_b)
@@ -193,7 +207,6 @@ def main():
             theta_fit, tc_fit = popt
             s_fit = fit_func(t_sec, theta_fit, tc_fit)
             
-            # Cálculo usando o ALFA constante definido no topo do programa
             eta_pct, delta_T_array, P_abs_calculada = calcular_eficiencia_e_temperatura(theta_fit, tc_fit, t_sec)
             delta_T_max = np.max(delta_T_array)
             
@@ -201,9 +214,6 @@ def main():
             print(f"Falha no ajuste matemático: {e}")
             continue
 
-        # =====================================================================
-        # 5. PLOTAGEM DOS RESULTADOS
-        # =====================================================================
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
         fig.canvas.manager.set_window_title(f"Ajuste - {nome_arquivo}")
         
@@ -234,7 +244,7 @@ def main():
         print(f"  Theta : {np.abs(theta_fit):.4f}")
         print(f"  Eta(η): {eta_pct:.1f}%")
 
-    print("\nProcessamento de todos os ficheiros concluído!")
+    print("\nProcessamento concluído!")
 
 if __name__ == "__main__":
     main()
