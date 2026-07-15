@@ -122,12 +122,18 @@ def ler_dados_robusto(caminho):
         return None, None
 
 def isolar_pulso_robusto(tempo, sinal):
-    v_min, v_max = np.min(sinal), np.max(sinal)
+    # Usa percentis para ignorar o ruído extremo ao calcular o tamanho da onda
+    v_min, v_max = np.percentile(sinal, 5), np.percentile(sinal, 95)
     amplitude = v_max - v_min
     if amplitude < 1e-4: return tempo, sinal 
         
+    # Cria uma cópia super suavizada do sinal APENAS para encontrar os limites com segurança
+    janela = min(50, len(sinal) // 10)
+    if janela < 3: janela = 3
+    sinal_suave = np.convolve(sinal, np.ones(janela)/janela, mode='same')
+    
     limiar_50 = v_min + 0.5 * amplitude
-    estado = (sinal > limiar_50).astype(int)
+    estado = (sinal_suave > limiar_50).astype(int)
     transicoes = np.diff(estado)
     
     bordas_subida = np.where(transicoes == 1)[0]
@@ -142,11 +148,12 @@ def isolar_pulso_robusto(tempo, sinal):
     limiar_I0 = v_min + (CALIBRACAO_LAMINAS_CHOPPER * amplitude)
     
     idx_corte = idx_inicio_50
-    while idx_corte > 0 and sinal[idx_corte] > limiar_I0:
+    # Usa a cópia suave para encontrar o I(0) sem ser enganado pelo ruído
+    while idx_corte > 0 and sinal_suave[idx_corte] > limiar_I0:
         idx_corte -= 1
         
     t_corte = tempo[idx_corte:idx_fim]
-    s_corte = sinal[idx_corte:idx_fim]
+    s_corte = sinal[idx_corte:idx_fim] # Retorna o sinal ORIGINAL (com ruído), preservando a física
     t_corte = t_corte - t_corte[0] 
     
     return t_corte, s_corte
@@ -230,7 +237,8 @@ def main():
     tc_mean = np.mean(tc_list)
     
     # Reconstrói a curva média baseada nos resultados
-    t_base = t_plot_all[0] 
+    idx_maior = np.argmax([len(t) for t in t_plot_all])
+    t_base = t_plot_all[idx_maior]
     s_fit_mean = fit_func(t_base, theta_mean, tc_mean)
     _, delta_T_mean_array, P_abs_mean = calcular_eficiencia_e_temperatura(theta_mean, tc_mean, t_base)
     delta_T_max_mean = np.max(delta_T_mean_array)

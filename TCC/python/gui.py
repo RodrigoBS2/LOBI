@@ -358,22 +358,30 @@ class OsciloscopioApp(QtWidgets.QWidget):
         if len(arr) == 0:
             v_max, v_min = 3.3, 0.0
         else:
-            v_max = np.max(arr)
-            v_min = np.min(arr)
+            # NOVO: Usa percentis (95% e 5%) em vez de máximo e mínimo absolutos.
+            # Isso filtra sumariamente qualquer pico de ruído na hora de calcular a escala.
+            v_max = np.percentile(arr, 95)
+            v_min = np.percentile(arr, 5)
             
         amplitude = v_max - v_min
 
         # 2. Ajustar Escala de Tensão (Y)
-        nova_escala_y = min(3.3, v_max * 1.2)
-        if nova_escala_y < 0.5: nova_escala_y = 1.0 
+        # O zoom agora abraça o pico máximo com 20% de margem, independente do tamanho.
+        # Colocamos um limite mínimo extremo de apenas 10mV para não dar zoom no ruído de fundo.
+        nova_escala_y = v_max * 1.2
+        if nova_escala_y < 0.010: 
+            nova_escala_y = 0.010 
+            
         self.slider_escala.setValue(int(nova_escala_y * 1000))
         self.slider_offset.setValue(0) 
 
         # 3. Ajustar Trigger 
-        if amplitude > 0.1:
+        # Calcula a linha vermelha sempre na metade exata da onda, mesmo que ela seja minúscula.
+        # Exige apenas que a onda tenha pelo menos 5mV de tamanho real para ser considerada válida.
+        if amplitude > 0.005:
             novo_trigger = v_min + (amplitude / 2.0)
         else:
-            novo_trigger = 0.700 
+            novo_trigger = v_min + 0.010 
             
         self.slider_trigger.setValue(int(novo_trigger * 1000))
         
